@@ -114,8 +114,7 @@ def add_write(message):
 
 def add_category(message):
 
-    match message.text:
-
+    match message.text.strip():
         case '1':
             answer_text = 'Чтобы добавить данные о больнице, необходимо написать их в следующем формате:\n*номер больницы*; *адрес*'
             send = bot.send_message(message.chat.id, answer_text)
@@ -133,8 +132,12 @@ def add_category(message):
             bot.send_message(message.chat.id, answer_text)
         case '5':
             answer_text = 'Чтобы добавить пациента, необходимо написать их в следующем формате:\n*имя*; *отчество*; *фамилия*; *место проживания*; *электронная почта*; *номер телефона*;\n*дата рождения*; *фамилия и инициалы лечащего врача*; *номер больницы(адрес больницы)*; *номер палаты(если нет "-" )*'
-            send = bot.send_message(message.chat.id, add_patient)
-            bot.register_next_step_handler(send, add_doctor)
+            send = bot.send_message(message.chat.id, answer_text)
+            bot.register_next_step_handler(send, add_patient)
+        case '6':
+            answer_text = 'Чтобы добавить анализы, необходимо написать их в следующем формате:\n*фамилия и инициалы пациента*, *результаты анализов крови*, *результаты анализов мочи*, *результаты анализов кала*'
+            send = bot.send_message(message.chat.id, answer_text)
+            bot.register_next_step_handler(send, add_analysis)
         case _:
             bot.send_message(message.chat.id, 'Все сначала, ебанат \nИз списка выбери, сука')
 
@@ -231,6 +234,7 @@ def add_doctor(message):
 
 def add_patient(message):
     try:
+        print(message.text.split(';'))
         first_name, middle_name, last_name, address, email, phone, birthdate, doctor,  hospital_id, hospital_room_id = message.text.split(';')
     except Exception:
         bot.send_message(message.chat.id, 'Неверный формат сообщения!')
@@ -243,10 +247,86 @@ def add_patient(message):
             port=config.PORT
         )
         cursor = connection.cursor()
-    if hospital_room_id.strip() == '-':
-        request = f"""INSERT INTO patient
-                            (first_name, middle_name, last_name, address, email, phone, birthdate, doctor, hospital_room_id, hospital_id )
-                            VALUES ('{first_name}', '{middle_name}', '{last_name}', '{address}', '{email}', '{phone}', '{birthdate}', '{doctor}', '{hospital_room_id}', '{hospital_id}');"""
 
+        if len(hospital_id) > 3:
+            cursor.execute(f"SELECT id FROM hospital WHERE address LIKE '%{hospital_id.strip()}%'")
+            hospital_id = cursor.fetchall()[0][0]
+
+        doctor_last_name, doctor_name = doctor.split()
+        print(doctor.split())
+        print(f"SELECT id, first_name, middle_name FROM doctor WHERE last_name  LIKE '%{doctor_last_name.strip()}%' AND hospital_id = {hospital_id.strip()}")
+        cursor.execute(f"SELECT id, first_name, middle_name FROM doctor WHERE last_name  LIKE '%{doctor_last_name.strip()}%' AND hospital_id = '{hospital_id.strip()}'")
+        doctor_id = None
+
+        for doctor in cursor.fetchall():
+            print(doctor)
+            if doctor[1].strip().startswith(doctor_name[0]) and doctor[2].strip().startswith(doctor_name[2]):
+                doctor_id = doctor[0]
+
+        if doctor_id is None:
+            bot.send_message(message.chat.id, 'Такого доктора больнице нет! ')
+            return
+
+        if hospital_room_id.strip() == '-':
+            request = f"""INSERT INTO patient
+                        (first_name, middle_name, last_name, address, email, phone, birthdate, doctor_id, hospital_id)
+                        VALUES ('{first_name}', '{middle_name}', '{last_name}', '{address}', '{email}', '{phone}', '{birthdate}', '{doctor_id}', '{hospital_id}');"""
+        else:
+            request = f"""INSERT INTO patient
+                        (first_name, middle_name, last_name, address, email, phone, birthdate, doctor_id, hospital_room_id, hospital_id)
+                        VALUES ('{first_name}', '{middle_name}', '{last_name}', '{address}', '{email}', '{phone}', '{birthdate}', '{doctor_id}','{hospital_room_id}', '{hospital_id}');"""
+
+        try:
+            cursor.execute(request)
+        except Exception as exc:
+            print(exc)
+
+        connection.commit()
+        connection.close()
+        bot.send_message(message.chat.id, 'Новый пользователь успешно создан!')
+
+
+def add_analysis(message):
+    try:
+        patient_data, blood_result, urine_result, cal_result = message.text.split(';')
+    except Exception:
+        bot.send_message(message.chat.id, 'Неверный формат сообщения')
+        return
+
+    else:
+        connection = psycopg2.connect(
+            database=config.DATABASE,
+            user=config.USER,
+            password=config.PASSWORD,
+            host=config.HOST,
+            port=config.PORT
+        )
+        cursor = connection.cursor()
+
+        try:
+            patient_last_name, patient_name = patient_data.split()
+        except Exception:
+            bot.send_message(message.chat.id, "Имя пациента указано неверно!")
+            return
+
+        try:
+            cursor.execute(f"SELECT id, first_name, middle_name FROM patient WHERE last_name LIKE '%{patient_last_name.strip()}%' }")
+        except Exception:
+            bot.send_message(message.chat.id, 'Такого пациента нет!')
+            return
+
+        patient_id = None
+        for patient in cursor.fetchall():
+            if patient[1].strip().startswith(patient_name[0]) and patient[2].strip().startswith(patient_name[2]):
+                patient_id = patient[0]
+
+        if patient_id is not None:
+            cursor.execute(f"INSERT INTO analys (blood_result, cal_result, urine_result, patient_id) VALUES ('{blood_result}', '{cal_result}', '{urine_result}', {patient_id});")
+        else:
+             bot.send_message(message.chat.id, 'Такого пациента нет!')
+
+        connection.commit()
+        connection.close()
+        bot.send_message(message.chat.id, 'Анализы успешно добавлены!')
 
 bot.infinity_polling()
