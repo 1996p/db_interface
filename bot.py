@@ -2,6 +2,7 @@ import telebot
 import config
 import psycopg2
 from psycopg2.errors import UniqueViolation, ForeignKeyViolation
+from datetime import date
 
 bot = telebot.TeleBot(config.TOKEN)
 
@@ -138,6 +139,12 @@ def add_category(message):
             answer_text = 'Чтобы добавить анализы, необходимо написать их в следующем формате:\n*фамилия и инициалы пациента*, *результаты анализов крови*, *результаты анализов мочи*, *результаты анализов кала*'
             send = bot.send_message(message.chat.id, answer_text)
             bot.register_next_step_handler(send, add_analysis)
+        case '7':
+            answer_text = 'Чтобы добавить пациента, необходимо написать их в следующем формате:\n*имя*; *отчество*; *фамилия*; *место проживания*; *электронная почта*; *номер телефона*;\n*дата рождения*; *номер палаты*; *номер больницы(адрес больницы)*'
+            send = bot.send_message(message.chat.id, answer_text)
+            bot.register_next_step_handler(send, add_staff)
+        case '8':
+            answer_text = 'Чтобы добавить диагноз пациента, необходимо написать данные в следующем формает:\n*фамилия и инициалы пациента*, *содержание диагноза*'
         case _:
             bot.send_message(message.chat.id, 'Все сначала, ебанат \nИз списка выбери, сука')
 
@@ -310,7 +317,7 @@ def add_analysis(message):
             return
 
         try:
-            cursor.execute(f"SELECT id, first_name, middle_name FROM patient WHERE last_name LIKE '%{patient_last_name.strip()}%' }")
+            cursor.execute(f"SELECT id, first_name, middle_name FROM patient WHERE last_name LIKE '%{patient_last_name.strip()}%'")
         except Exception:
             bot.send_message(message.chat.id, 'Такого пациента нет!')
             return
@@ -328,5 +335,81 @@ def add_analysis(message):
         connection.commit()
         connection.close()
         bot.send_message(message.chat.id, 'Анализы успешно добавлены!')
+
+
+def add_staff(message):
+    try:
+        print(message.text.split(';'))
+        first_name, middle_name, last_name, address, email, phone, birthdate, hospital_room_id, hospital_id = message.text.split(';')
+    except Exception:
+        bot.send_message(message.chat.id, 'Неверный формат сообщения!')
+    else:
+        connection = psycopg2.connect(
+            database=config.DATABASE,
+            user=config.USER,
+            password=config.PASSWORD,
+            port=config.PORT,
+            host=config.HOST,
+        )
+
+        cursor = connection.cursor()
+
+        if len(hospital_id) > 3:
+            cursor.execute(f"SELECT id FROM hospital WHERE address LIKE '%{hospital_id.strip()}%'")
+            hospital_id = cursor.fetchall()[0][0]
+
+        request = f"""INSERT INTO staff
+                     (first_name, middle_name, last_name, address, email, phone, birthdate, hospital_room_id, hospital_id)
+                     VALUES ('{first_name}', '{middle_name}', '{last_name}', '{address}', '{email}', '{phone}', '{birthdate}','{hospital_room_id}', '{hospital_id}');"""
+
+        try:
+            cursor.execute(request)
+        except Exception as exc:
+            print(exc)
+            bot.send_message(message.chat.id, 'Произошла ошибка при добавлении персонала!')
+        else:
+            connection.commit()
+            connection.close()
+
+
+def add_diagnosis(message):
+    try:
+        patient_data, diagnosis = message.text.split(';')
+    except Exception:
+        bot.send_message(message.chat.id, 'Неверный формат сообщения')
+    else:
+        connection = psycopg2.connect(
+            database=config.DATABASE,
+            user=config.USER,
+            password=config.PASSWORD,
+            port=config.PORT,
+            host=config.HOST,
+        )
+
+        cursor = connection.cursor()
+
+        patient_last_name, patient_name = patient_data.split(';')
+
+        try:
+            cursor.execute(f"SELECT id, first_name, last_name FROM patient WHERE last_name = '{patient_last_name}'" )
+        except Exception:
+            bot.send_message(message.chat.id, "Такого пациента нет!")
+            return
+        else:
+            patient_id = None
+            for patient in cursor.fetchall():
+                if patient[1].strip().startswith(patient_name[0]) and patient[2].strip().startswith(patient_name[2]):
+                   patient_id = patient[0]
+
+            if patient_id is not None:
+                try:
+                    cursor.execute(f"INSERT INTO conclusion (patient_id, content, date) VALUES ({patient_id}, '{diagnosis}', '{date.today()}')")
+                    connection.commit()
+                except Exception:
+                    bot.send_message(message.chat.id, 'Возникла ошибка при добавлении диагноза в базу данных')
+                else:
+                    connection.close()
+                    bot.send_message(message.chat.id, 'Диагноз успешно создан')
+
 
 bot.infinity_polling()
