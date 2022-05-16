@@ -3,6 +3,7 @@ import config
 import psycopg2
 from psycopg2.errors import UniqueViolation, ForeignKeyViolation
 from datetime import date
+from PIL import Image, ImageFont, ImageDraw
 
 bot = telebot.TeleBot(config.TOKEN)
 
@@ -25,7 +26,7 @@ def have_access(telegram_id: int) -> bool:
 
 @bot.message_handler(commands=['getall'])
 def get(message):
-    send = bot.send_message(message.chat.id,'Какую информацию Вы хотите получить? \n1) Больницу(сотрудники, пациенты,, лаборатории, общая информация) \n2) О враче(пациенте, контакты, место работы)\n3) О лаборатории(не ебу че это за залупа ваще, хз че с ней делать)\n4) О пациенте(лежит ли стационаре, в какой палате, диагноз, результаты анализов, лечущий врач, номер больницы)\n  5) О палате(персонал, больные)')
+    send = bot.send_message(message.chat.id,'Какую информацию Вы хотите получить? \n1) Больницу(общая информация) \n2) О враче(пациенте, контакты, место работы)\n3) О лаборатории(не ебу че это за залупа ваще, хз че с ней делать)\n4) О пациенте(лежит ли стационаре, в какой палате, диагноз, результаты анализов, лечущий врач, номер больницы)\n  5) О палате(персонал, больные)')
     bot.register_next_step_handler(send, get_category)
 
 
@@ -34,9 +35,9 @@ def get_category(message):
     match message.text:
 
         case '1':
-            answer_text = 'Выберите информацию о чем Вы хотите получить?\n1) Персонал палат\n2) Врачи\n3) Все сотрудники\n4) Пациенты\n5) Лаборатории\n6) Общая информация'
+            answer_text = 'Введите адрес или номер больницы, о которой Вы хотите получить информацию'
             send = bot.send_message(message.chat.id, answer_text)
-            bot.register_next_step_handler(send, get_hospital_info)
+            bot.register_next_step_handler(send, get_hospital)
 
         case '2':
             answer_text = 'Чтобы получить данные врача, введите ФИО'
@@ -76,7 +77,7 @@ def get_hospital_room_staff(message):
             hospital_number = content[0]
 
 
-def get_hospital_info(message):
+def get_hospital(message):
     connection = psycopg2.connect(
         database=config.DATABASE,
         user=config.USER,
@@ -85,17 +86,37 @@ def get_hospital_info(message):
         port=config.PORT
     )
     cursor = connection.cursor()
-    match message.text:
-        case '6':
-            answer = ''
-            if message.text == '*':
-                cursor.execute('SELECT * FROM hospital;')
-                hospitals = cursor.fetchall()
-                print(hospitals)
-                for hospital in hospitals:
-                    answer += f'{hospitals.index(hospital)+1}) №{hospital[0]}, {hospital[1]}\n'
-                bot.send_message(message.chat.id, answer)
-            connection.close()
+    if len(message.text) >= 4:
+        request = f"SELECT * FROM hospital WHERE address = '{message.text}';"
+    else:
+        request = f"SELECT * FROM hospital WHERE id = {message.text}"
+
+    cursor.execute(request)
+
+    hospital_number, hospital_address = cursor.fetchall()[0]
+
+    image = Image.open('hospital_card.jpeg')
+    font = ImageFont.truetype('C:\\Users\\dursi\\PycharmProjects\\pythonProject2\\a_MachinaOrtoSls_Bold.ttf', size=37)
+    draw = ImageDraw.Draw(image)
+    formatted_address = list(hospital_address)
+    print('1', formatted_address)
+    draw.text((415, 343),
+              f'Больница №{hospital_number}',
+              fill=('#1C0606'),
+              font=font)
+    draw.text(
+        (415, 385),
+        f'адрес: {"".join(formatted_address[:hospital_address.find("ул.")-1])}',
+        fill=('#1C0606'),
+        font=font
+    )
+    draw.text(
+        (414, 428),
+        f'{"".join(formatted_address[hospital_address.find("ул."):])}',
+        fill=('#1C0606'),
+        font=font
+    )
+    bot.send_photo(message.chat.id, image)
 
 
 def search_write(message):
