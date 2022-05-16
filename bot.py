@@ -174,6 +174,7 @@ def add_hospital(message):
     try:
         number, address = message.text.split(';')
     except Exception:
+
         bot.send_message(message.chat.id, 'Ну, сука, ну и дебил, я хуею. ТЫ ДОЛЖЕН БЫЛ НАПИСАТЬ ДАННЫЕ КАК УКАЗАНО ВЫШЕ!')
     else:
         connection = psycopg2.connect(
