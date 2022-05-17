@@ -5,6 +5,19 @@ from psycopg2.errors import UniqueViolation, ForeignKeyViolation
 from datetime import date
 from PIL import Image, ImageFont, ImageDraw
 
+
+class Doctor:
+    def __init__(self, last_name: str, name: str, middle_name: str):
+        self.name = name
+        self.last_name = last_name
+        self.middle_name = middle_name
+        self.phone = None
+        self.email = None
+        self.position = None
+        self.hospital_id = None
+        self.patient_count = 0
+
+
 bot = telebot.TeleBot(config.TOKEN)
 
 
@@ -24,7 +37,7 @@ def have_access(telegram_id: int) -> bool:
     return result
 
 
-@bot.message_handler(commands=['getall'])
+@bot.message_handler(commands=['get'])
 def get(message):
     send = bot.send_message(message.chat.id,'Какую информацию Вы хотите получить? \n1) Больницу(общая информация) \n2) О враче(пациенте, контакты, место работы)\n3) О лаборатории(не ебу че это за залупа ваще, хз че с ней делать)\n4) О пациенте(лежит ли стационаре, в какой палате, диагноз, результаты анализов, лечущий врач, номер больницы)\n  5) О палате(персонал, больные)')
     bot.register_next_step_handler(send, get_category)
@@ -42,7 +55,7 @@ def get_category(message):
         case '2':
             answer_text = 'Чтобы получить данные врача, введите ФИО'
             send = bot.send_message(message.chat.id, answer_text)
-            bot.register_next_step_handler(send, search_write)
+            bot.register_next_step_handler(send, get_doctor)
 
         case '3':
             answer_text = 'Чтобы получить данные лаборатории я хуй знает че сделать надо....'
@@ -99,7 +112,6 @@ def get_hospital(message):
     font = ImageFont.truetype('C:\\Users\\dursi\\PycharmProjects\\pythonProject2\\a_MachinaOrtoSls_Bold.ttf', size=37)
     draw = ImageDraw.Draw(image)
     formatted_address = list(hospital_address)
-    print('1', formatted_address)
     draw.text((415, 343),
               f'Больница №{hospital_number}',
               fill=('#1C0606'),
@@ -117,6 +129,43 @@ def get_hospital(message):
         font=font
     )
     bot.send_photo(message.chat.id, image)
+
+
+def get_doctor(message):
+    try:
+        doctor = Doctor(*message.text.split())
+    except Exception:
+        bot.send_message(message.chat.id, 'Неверный формат введенных данных')
+    else:
+        connection = psycopg2.connect(
+            database=config.DATABASE,
+            user=config.USER,
+            password=config.PASSWORD,
+            host=config.HOST,
+            port=config.PORT
+        )
+        cursor = connection.cursor()
+        print()
+        request = f"""SELECT doctor.email, doctor.phone, doctor.position, doctor.hospital_id FROM patient 
+                      JOIN doctor ON patient.doctor_id = doctor.id 
+                      WHERE doctor.first_name LIKE '%{doctor.name}%' AND doctor.last_name LIKE '%{doctor.last_name}%' AND doctor.middle_name LIKE '%{doctor.middle_name}%';"""
+
+        cursor.execute(request)
+        data = cursor.fetchall()
+        doctor.email, doctor.phone, doctor.position, doctor.hospital_id = data[0]
+        doctor.patient_count = len(data)
+
+        image = Image.open('image_templates/human_card.jpg')
+        font = ImageFont.truetype('C:\\Users\\dursi\\PycharmProjects\\pythonProject2\\fonts\\a_MachinaOrtoSls_Bold.ttf',
+                                  size=18)
+        draw = ImageDraw.Draw(image)
+
+        draw.text((285, 248),
+                  f'Больница №{doctor.hospital_id}\n{doctor.last_name} {doctor.name[0]}. {doctor.middle_name[0]}., {doctor.position}\nконтакты:\n{doctor.phone.strip()}\n{doctor.email.strip()}\nпациентов: {doctor.patient_count}',
+                  fill=('#0000FF'),
+                  font=font)
+
+        bot.send_photo(message.chat.id, image)
 
 
 def search_write(message):
