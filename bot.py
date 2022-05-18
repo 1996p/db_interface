@@ -18,6 +18,31 @@ class Doctor:
         self.patient_count = 0
 
 
+class Patient:
+    def __init__(self, last_name: str, name: str, middle_name: str):
+        self.name = name
+        self.last_name = last_name
+        self.middle_name = middle_name
+        self.birth_date = None
+        self.address = None
+        self.hospital_id = None
+        self.hospital_room_id = None
+        self.doctor_id = None
+        self.phone = None
+        self.email = None
+        self.id = None
+
+    def get_data_from_database(self, id:int, phone: str, email: str, birth_date: str, address: str, doctor_id: int, hospital_room_id: int, hospital_id: int):
+        self.birth_date = birth_date
+        self.address = address
+        self.hospital_id = hospital_id
+        self.hospital_room_id = hospital_room_id
+        self.doctor_id = doctor_id
+        self.phone = phone
+        self.email = email
+        self.id = id
+
+
 bot = telebot.TeleBot(config.TOKEN)
 
 
@@ -64,7 +89,7 @@ def get_category(message):
         case '4':
             answer_text = 'Чтобы получить данные пациента, введите ФИО'
             send = bot.send_message(message.chat.id, answer_text)
-            bot.register_next_step_handler(send, search_write)
+            bot.register_next_step_handler(send, get_patient_info)
 
         case '5':
             answer_text = 'Чтобы получить данные о палате, введите номер палаты и номер/адрес больницы'
@@ -106,10 +131,14 @@ def get_hospital(message):
 
     cursor.execute(request)
 
-    hospital_number, hospital_address = cursor.fetchall()[0]
+    try:
+        hospital_number, hospital_address = cursor.fetchall()[0]
+    except Exception:
+        bot.send_message(message.chat.id, 'Нет больницы с такими данными')
+        return
 
-    image = Image.open('hospital_card.jpeg')
-    font = ImageFont.truetype('C:\\Users\\dursi\\PycharmProjects\\pythonProject2\\a_MachinaOrtoSls_Bold.ttf', size=37)
+    image = Image.open('image_templates\hospital_card.jpeg')
+    font = ImageFont.truetype('C:\\Users\\dursi\\PycharmProjects\\pythonProject2\\fonts\\a_MachinaOrtoSls_Bold.ttf', size=37)
     draw = ImageDraw.Draw(image)
     formatted_address = list(hospital_address)
     draw.text((415, 343),
@@ -152,6 +181,9 @@ def get_doctor(message):
 
         cursor.execute(request)
         data = cursor.fetchall()
+        if len(data) == 0:
+            bot.send_message(message.chat.id, 'Нет доктора с такими данными')
+            return
         doctor.email, doctor.phone, doctor.position, doctor.hospital_id = data[0]
         doctor.patient_count = len(data)
 
@@ -166,6 +198,46 @@ def get_doctor(message):
                   font=font)
 
         bot.send_photo(message.chat.id, image)
+        del doctor
+
+
+def get_patient_info(message):
+    try:
+        patient = Patient(*message.text.split())
+    except Exception:
+        bot.send_message(message.chat.id, 'Неверный формат введенных данных')
+    else:
+        connection = psycopg2.connect(
+            database=config.DATABASE,
+            user=config.USER,
+            password=config.PASSWORD,
+            host=config.HOST,
+            port=config.PORT
+        )
+        cursor = connection.cursor()
+        request = f"""SELECT id, phone, email, birthdate, address, doctor_id, hospital_room_id, hospital_id FROM patient 
+                     WHERE first_name LIKE '%{patient.name}%' AND last_name LIKE '%{patient.last_name}%' AND middle_name LIKE '%{patient.middle_name}%'"""
+        cursor.execute(request)
+
+        data = cursor.fetchall()
+
+        if len(data) == 0:
+            bot.send_message(message.chat.id, 'Такого пациента нет')
+            del patient
+            return
+
+        patient.get_data_from_database(*data[0])
+
+        image = Image.open('image_templates/human_card.jpg')
+        font = ImageFont.truetype('C:\\Users\\dursi\\PycharmProjects\\pythonProject2\\fonts\\a_MachinaOrtoSls_Bold.ttf',
+                                  size=16)
+        draw = ImageDraw.Draw(image)
+        draw.text((265, 248),
+                  f"Пациент №{patient.id}, Больница №{patient.hospital_id}\n{patient.last_name} {patient.name} {patient.middle_name}\n{patient.birth_date}\n{patient.phone}\n{patient.email}\n{('Лежит в палате№'+patient.hospital_room_id)  if patient.hospital_room_id is not None else 'Не лежит в палате'}\n     {patient.address}",
+                  fill=('#0000FF'),
+                  font=font)
+        bot.send_photo(message.chat.id, image)
+        del patient
 
 
 def search_write(message):
